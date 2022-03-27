@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
+# Author:hujiahao
 
 import pandas as pd
-import numpy as 
+import numpy as np
 
 def info_entropy(feat):
     '''
