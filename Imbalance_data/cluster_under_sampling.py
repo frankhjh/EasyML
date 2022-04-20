@@ -16,13 +16,15 @@ from .utils import euclidean_distance
 
 class ClusterBasedUnderSampling:
 
-    def __init__(self,feat_li,cate_feat_li,discount_ratio,cluster_method,k=10,sample_ratio=0.3):
+    def __init__(self,feat_li,cate_feat_li,discount_ratio,cluster_method,k=10,sample_ratio=0.3,large_cluster_threshold=3,small_cluster_threshold=0.1):
         self.feat_li=feat_li
         self.cate_feat_li=cate_feat_li
         self.discount_ratio=discount_ratio
         self.cluster_method=cluster_method
         self.k=k
         self.sample_ratio=sample_ratio
+        self.large_cluster_threshold=large_cluster_threshold
+        self.small_cluster_threshold=small_cluster_threshold
         
         self.feat_li_=None # after one hot encoding
     
@@ -128,8 +130,26 @@ class ClusterBasedUnderSampling:
         
         # sampling from each cluster
         sample_res=list()
+
+        avg_cluster_size=df.shape[0]/self.k
         for cluster,samples in clusters.items():
-            pass
+
+            if len(samples)>avg_cluster_size*self.large_cluster_threshold:
+                sampling_size=avg_cluster_size
+            elif len(samples)<avg_cluster_size*self.small_cluster_threshold:
+                sampling_size=len(samples)
+            else:
+                sampling_size=len(samples)*self.sample_ratio
+
+            sample_res+=random.sample(samples,sampling_size)
+        
+        # output: idx
+        return sorted(sample_res)
+
+        
+        
+
+            
             
 
 
