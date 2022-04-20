@@ -63,7 +63,7 @@ class ClusterBasedUnderSampling:
 
     def __cate_discounter(self,df):
         '''
-        Q: Why I do this?
+        Q: Why I do this?
         A: Because when we calculate the distance of 2 samples(vectors), the category features with only 0 or 1 will have strong
         advantage compare to continuous features which have already scaled into interval [0,1]. In order to reduce this effect 
         as possible, when I calculate the distance in each category feature, i will multiply this distance with a discount ratio. 
@@ -79,8 +79,9 @@ class ClusterBasedUnderSampling:
         '''
         cate_feat_pattern=re.compile(r'[a-zA-Z_]+_[0-9]+')
         for f in list(df):
-            if f==cate_feat_pattern.match(f).group():
-                df[f]=df[f].apply(lambda x:np.sqrt(self.discount_ratio)*x)
+            if cate_feat_pattern.match(f):
+                if f==cate_feat_pattern.match(f).group():
+                    df[f]=df[f].apply(lambda x:np.sqrt(self.discount_ratio)*x)
         return df
     
 
@@ -94,12 +95,13 @@ class ClusterBasedUnderSampling:
         pass 
     
     def run(self,df):
+        
+        tmp=df.copy()
+        tmp=self.__one_hot_encoding(tmp) # one hot encoding
+        tmp=self.__normalize(tmp) # normalization
+        tmp=self.__cate_discounter(tmp) # category features discount
 
-        df=self.__one_hot_encoding(df) # one hot encoding
-        df=self.__normalize(df) # normalization
-        df=self.__cate_discounter(df) # category features discount
-
-        mat=df.values
+        mat=tmp.values
 
         cluster_alg=self.__init_cluster_alg() # init cluster algorithm
         cluster_alg.fit(mat) # run the cluster algorithm
@@ -107,7 +109,7 @@ class ClusterBasedUnderSampling:
         clusters=defaultdict(list) # init dict to store the cluster info for each sample
 
         # collect the cluster info for each sample
-        for i in tqdm(range(df.shape[0])):
+        for i in tqdm(range(tmp.shape[0])):
             label=cluster_alg.labels_[i]
             clusters[label].append(i)
         
@@ -120,7 +122,7 @@ class ClusterBasedUnderSampling:
         clusters_distances=defaultdict(dict)
         for label,sample_li in tqdm(clusters.items()):
             for idx in sample_li:
-                clusters_distances[label][idx]=euclidean_distance(df.iloc[idx].values,curs[label])
+                clusters_distances[label][idx]=euclidean_distance(tmp.iloc[idx].values,curs[label])
             
             distance_sorted_samples=sorted(clusters_distances[label].items(),key=lambda x:x[1])
             sorted_sample_li=[i[0] for i in distance_sorted_samples]
@@ -131,7 +133,7 @@ class ClusterBasedUnderSampling:
         # sampling from each cluster
         sample_res=list()
 
-        avg_cluster_size=df.shape[0]/self.k
+        avg_cluster_size=int(tmp.shape[0]/self.k)
         for cluster,samples in clusters.items():
 
             if len(samples)>avg_cluster_size*self.large_cluster_threshold:
@@ -139,22 +141,12 @@ class ClusterBasedUnderSampling:
             elif len(samples)<avg_cluster_size*self.small_cluster_threshold:
                 sampling_size=len(samples)
             else:
-                sampling_size=len(samples)*self.sample_ratio
+                sampling_size=int(len(samples)*self.sample_ratio)
 
             sample_res+=random.sample(samples,sampling_size)
         
         # output: idx
         return sorted(sample_res)
-
-        
-        
-
-            
-            
-
-
-
-        
 
 
 
