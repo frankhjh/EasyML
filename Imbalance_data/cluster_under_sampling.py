@@ -5,11 +5,13 @@ Created on 2022-04-18 17:15 Monday
 """
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import re
 import random
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import silhouette_score
 from sklearn.cluster import KMeans
 from sklearn.cluster import MiniBatchKMeans
 from .utils import euclidean_distance
@@ -91,8 +93,52 @@ class ClusterBasedUnderSampling:
         
         return cluster_alg
     
-    def __find_best_k(self): # use elbow rule
-        pass 
+    def find_best_k(self,df,candidate_ks,method='elbow'): # use elbow rule
+        '''
+        When you use kmeans as your cluster algorithm, you may want to select the best k.
+
+        Args:
+            df(pandas.DataFrame): the features dataframe.
+            candidates_ks(list): the list of candidate k.
+            method(str): the method to select best k.
+        
+        Returns:
+            self
+        '''
+        tmp=df.copy()
+        tmp=self.__one_hot_encoding(tmp) # one hot encoding
+        tmp=self.__normalize(tmp) # normalization
+        tmp=self.__cate_discounter(tmp) # category features discount
+
+        mat=tmp.values
+
+        res=dict() # create a dictionary to store the evaluation result for each k.
+
+        if method=='elbow':
+            for k in candidate_ks:
+                alg=KMeans(n_clusters=k,algorithm='full')
+                alg.fit(mat)
+                
+                res[k]=alg.inertia_
+            plt.plot(list(res.keys()),list(res.values()))
+            plt.xlabel('k')
+            plt.ylabel('SSD')
+            plt.title('SSD variation with different k')
+            
+        if method=='silhouette':
+            for k in candidate_ks:
+                alg=KMeans(n_clusters=k,algorithm='full')
+                alg.fit(mat)
+
+                labels=alg.labels_
+
+                res[k]=silhouette_score(mat,labels)
+            plt.plot(list(res.keys()),list(res.values()))
+            plt.xlabel('k')
+            plt.ylabel('SC')
+            plt.title('Silhouette Cofficient variation with different k')
+        
+        return self
     
     def run(self,df):
         
