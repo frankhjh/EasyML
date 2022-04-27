@@ -14,6 +14,8 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import silhouette_score
 from sklearn.cluster import KMeans
 from sklearn.cluster import MiniBatchKMeans
+from kmodes.kprototypes import KPrototypes
+from fcmeans import FCM
 from .utils import euclidean_distance
 
 class ClusterBasedUnderSampling:
@@ -29,6 +31,7 @@ class ClusterBasedUnderSampling:
         self.small_cluster_threshold=small_cluster_threshold
         
         self.feat_li_=None # after one hot encoding
+        self.cate_feat_li_=None 
     
     def __one_hot_encoding(self,df):
         '''
@@ -38,14 +41,18 @@ class ClusterBasedUnderSampling:
         Returns:
             df(pandas.DataFrame):the DataFrame contains all features after one hot encoding for category features.
         '''
+        cate_feat_li_=list()
+
         for f in tqdm(self.cate_feat_li):
             for idx,unique_v in enumerate(df[f].unique()):
                 df[f'{f}_{idx}']=df[f].apply(lambda x:1 if x==unique_v else 0)
+                cate_feat_li_.append(f'{f}_{idx}')
             df=df.drop(columns=[f],axis=1)
         
         # store the feature list after one hot encoding
         self.feat_li_=list(df)
-        return df
+        self.cate_feat_li_=cate_feat_li_
+        return self,df
 
     def __normalize(self,df):
         '''
@@ -91,6 +98,12 @@ class ClusterBasedUnderSampling:
         if self.cluster_method=='kmeans':
             cluster_alg=KMeans(n_clusters=self.k,algorithm='full')
         
+        if self.cluster_method=='kprototypes':
+            cluster_alg=KPrototypes(n_clusters=self.k,verbose=0,n_jobs=-1)
+        
+        if self.cluster_method=='fcmeans':
+            cluster_alg=FCM(n_clusters=self.k)
+        
         return cluster_alg
     
     def find_best_k(self,df,candidate_ks,method='elbow'): # use elbow rule
@@ -106,7 +119,7 @@ class ClusterBasedUnderSampling:
             self
         '''
         tmp=df.copy()
-        tmp=self.__one_hot_encoding(tmp) # one hot encoding
+        self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
         tmp=self.__normalize(tmp) # normalization
         tmp=self.__cate_discounter(tmp) # category features discount
 
@@ -142,28 +155,63 @@ class ClusterBasedUnderSampling:
     
     def run(self,df):
         
-        tmp=df.copy()
-        tmp=self.__one_hot_encoding(tmp) # one hot encoding
-        tmp=self.__normalize(tmp) # normalization
-        tmp=self.__cate_discounter(tmp) # category features discount
-
-        mat=tmp.values
+        tmp=df.copy() # make copy of data
+        try:
+            tmp=tmp[self.feat_li]
+        except:
+            raise Exception('Make sure the df contains all features needed!')
 
         cluster_alg=self.__init_cluster_alg() # init cluster algorithm
-        cluster_alg.fit(mat) # run the cluster algorithm
-
+        
+        if self.cluster_method=='kmeans':
+            self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
+            tmp=self.__normalize(tmp) # normalization
+            tmp=self.__cate_discounter(tmp) # category features discount
+            mat=tmp.values
+            
+            cluster_alg.fit(mat) # run the cluster algorithm
+        
+        if self.cluster_method=='kprototypes':
+            self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
+            tmp=self.__normalize(tmp) # normalization
+            
+            category_idx=[self.feat_li_.index(i) for i in self.cate_feat_li_]
+            cluster_alg.fit(tmp,categorical=category_idx)
+        
+        if self.cluster_method=='fcmeans':
+            self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
+            tmp=self.__normalize(tmp) # normalization
+            tmp=self.__cate_discounter(tmp) # category features discount
+            mat=tmp.values
+            
+            cluster_alg.fit(mat) # run the cluster algorithm
+        
+        
         clusters=defaultdict(list) # init dict to store the cluster info for each sample
 
         # collect the cluster info for each sample
         for i in tqdm(range(tmp.shape[0])):
-            label=cluster_alg.labels_[i]
+            if self.cluster_method in ['kmeans','kprototypes']: 
+                label=cluster_alg.labels_[i]
+            if self.cluster_method == 'fcmeans':
+                label=cluster_alg.predict(tmp.iloc[i].values.reshape(1,-1))
+                label=int(label[0])
             clusters[label].append(i)
         
         # re-sort the samples within each cluster based on the distance between them and their centroids.
         curs=dict()
         for i in range(self.k):
-            cluster=cluster_alg.predict(cluster_alg.cluster_centers_[i].reshape(1,-1))
-            curs[cluster[0]]=cluster_alg.cluster_centers_[i]
+            if self.cluster_method=='kmeans':
+                cluster=cluster_alg.predict(cluster_alg.cluster_centers_[i].reshape(1,-1))
+                curs[cluster[0]]=cluster_alg.cluster_centers_[i]
+            
+            if self.cluster_method=='kprototypes':
+                cluster=cluster_alg.predict(cluster_alg.cluster_centroids_[i].reshape(1,-1),categorical=category_idx)
+
+            if self.cluster_method=='fcmeans':
+                cluster=cluster_alg.predict(cluster_alg.centers[i].reshape(1,-1))
+                curs[int(cluster[0])]=cluster_alg.centers[i]
+            
         
         clusters_distances=defaultdict(dict)
         for label,sample_li in tqdm(clusters.items()):
@@ -188,11 +236,12 @@ class ClusterBasedUnderSampling:
                 sampling_size=len(samples)
             else:
                 sampling_size=int(len(samples)*self.sample_ratio)
-
+            
             sample_res+=random.sample(samples,sampling_size)
         
         # output: idx
         return sorted(sample_res)
+
 
 
 
