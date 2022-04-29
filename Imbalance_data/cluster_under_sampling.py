@@ -14,7 +14,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import silhouette_score
 from sklearn.cluster import KMeans
 from sklearn.cluster import MiniBatchKMeans
-from kmodes.kprototypes import KPrototypes
+from sklearn.cluster import Birch
 from fcmeans import FCM
 from .utils import euclidean_distance
 
@@ -86,11 +86,19 @@ class ClusterBasedUnderSampling:
         Returns:
             the feature dataframe after category features discount process
         '''
+        continuous_feat_li=list(set(self.feat_li).difference(set(self.cate_feat_li)))
+        tmp=df[continuous_feat_li]
+        dr=tmp.std().mean() # avg std of continous features (after normalization) 
+
         cate_feat_pattern=re.compile(r'[a-zA-Z_]+_[0-9]+')
         for f in list(df):
             if cate_feat_pattern.match(f):
                 if f==cate_feat_pattern.match(f).group():
-                    df[f]=df[f].apply(lambda x:np.sqrt(self.discount_ratio)*x)
+                    if self.discount_ratio: 
+                        df[f]=df[f].apply(lambda x:np.sqrt(self.discount_ratio)*x)
+                    else: # use the avg std of continuous features (after normalization) as discount rate
+                        df[f]=df[f].apply(lambda x:np.sqrt(dr)*x)
+        
         return df
     
 
@@ -98,11 +106,14 @@ class ClusterBasedUnderSampling:
         if self.cluster_method=='kmeans':
             cluster_alg=KMeans(n_clusters=self.k,algorithm='full')
         
-        if self.cluster_method=='kprototypes':
-            cluster_alg=KPrototypes(n_clusters=self.k,verbose=0,n_jobs=-1)
-        
         if self.cluster_method=='fcmeans':
             cluster_alg=FCM(n_clusters=self.k)
+        
+        if self.cluster_method=='birch':
+            cluster_alg=Birch(n_clusters=self.k)
+        
+        if self.cluster_method=='minikmeans':
+            cluster_alg=MiniBatchKMeans(n_clusters=self.k,batch_size=4096)
         
         return cluster_alg
     
@@ -170,14 +181,7 @@ class ClusterBasedUnderSampling:
             mat=tmp.values
             
             cluster_alg.fit(mat) # run the cluster algorithm
-        
-        if self.cluster_method=='kprototypes':
-            self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
-            tmp=self.__normalize(tmp) # normalization
-            
-            category_idx=[self.feat_li_.index(i) for i in self.cate_feat_li_]
-            cluster_alg.fit(tmp,categorical=category_idx)
-        
+
         if self.cluster_method=='fcmeans':
             self,tmp=self.__one_hot_encoding(tmp) # one hot encoding
             tmp=self.__normalize(tmp) # normalization
@@ -186,12 +190,27 @@ class ClusterBasedUnderSampling:
             
             cluster_alg.fit(mat) # run the cluster algorithm
         
+        if self.cluster_method=='birch':
+            self,tmp=self.__one_hot_encoding(tmp)
+            tmp=self.__normalize(tmp)
+            tmp=self.__cate_discounter(tmp)
+            mat=tmp.values
+
+            cluster_alg.fit(mat)
+        
+        if self.cluster_method=='minikmeans':
+            self,tmp=self.__one_hot_encoding(tmp)
+            tmp=self.__normalize(tmp)
+            tmp=self.__cate_discounter(tmp)
+            mat=tmp.values
+
+            cluster_alg.fit(mat)
         
         clusters=defaultdict(list) # init dict to store the cluster info for each sample
 
         # collect the cluster info for each sample
         for i in tqdm(range(tmp.shape[0])):
-            if self.cluster_method in ['kmeans','kprototypes']: 
+            if self.cluster_method in ['kmeans','birch','minikmeans']: 
                 label=cluster_alg.labels_[i]
             if self.cluster_method == 'fcmeans':
                 label=cluster_alg.predict(tmp.iloc[i].values.reshape(1,-1))
@@ -200,18 +219,26 @@ class ClusterBasedUnderSampling:
         
         # re-sort the samples within each cluster based on the distance between them and their centroids.
         curs=dict()
-        for i in range(self.k):
-            if self.cluster_method=='kmeans':
+        
+        if self.cluster_method=='kmeans' or self.cluster_method=='minikmeans':
+            for i in range(self.k):
                 cluster=cluster_alg.predict(cluster_alg.cluster_centers_[i].reshape(1,-1))
                 curs[cluster[0]]=cluster_alg.cluster_centers_[i]
             
-            if self.cluster_method=='kprototypes':
-                cluster=cluster_alg.predict(cluster_alg.cluster_centroids_[i].reshape(1,-1),categorical=category_idx)
-
-            if self.cluster_method=='fcmeans':
+        if self.cluster_method=='fcmeans':
+            for i in range(len(cluster_alg.centers)):
                 cluster=cluster_alg.predict(cluster_alg.centers[i].reshape(1,-1))
                 curs[int(cluster[0])]=cluster_alg.centers[i]
-            
+
+        if self.cluster_method=='birch':
+            for label,idxs in clusters.items():
+                cur_est=list()
+                sub_tmp=tmp.loc[idxs].reset_index(drop=True)
+
+                for f in list(sub_tmp):
+                    cur_est.append(sub_tmp[f].mean())
+                curs[label]=np.array(cur_est)
+
         
         clusters_distances=defaultdict(dict)
         for label,sample_li in tqdm(clusters.items()):
@@ -228,8 +255,8 @@ class ClusterBasedUnderSampling:
         sample_res=list()
 
         avg_cluster_size=int(tmp.shape[0]/self.k)
+        
         for cluster,samples in clusters.items():
-
             if len(samples)>avg_cluster_size*self.large_cluster_threshold:
                 sampling_size=avg_cluster_size
             elif len(samples)<avg_cluster_size*self.small_cluster_threshold:
