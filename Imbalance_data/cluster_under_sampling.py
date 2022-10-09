@@ -16,16 +16,17 @@ from sklearn.cluster import KMeans
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import Birch
 from fcmeans import FCM
-from .utils import euclidean_distance
+from sklearn.metrics.pairwise import cosine_similarity,euclidean_distances
 
 class ClusterBasedUnderSampling:
 
-    def __init__(self,label,feat_li,cate_feat_li,discount_ratio,cluster_method,k = 10,sample_ratio = 0.3,large_cluster_threshold = 3,small_cluster_threshold = 0.1):
+    def __init__(self,label,feat_li,cate_feat_li,discount_ratio,cluster_method,distance_measure,k = 10,sample_ratio = 0.3,large_cluster_threshold = 3,small_cluster_threshold = 0.1):
         self.label = label
         self.feat_li = feat_li
         self.cate_feat_li = cate_feat_li
         self.discount_ratio = discount_ratio
         self.cluster_method = cluster_method
+        self.distance_measure = distance_measure
         self.k = k
         self.sample_ratio = sample_ratio
         self.large_cluster_threshold = large_cluster_threshold
@@ -276,7 +277,10 @@ class ClusterBasedUnderSampling:
         clusters_distances = defaultdict(dict)
         for label,sample_li in tqdm(clusters.items()):
             for idx in sample_li:
-                clusters_distances[label][idx] = euclidean_distance(tmp.iloc[idx].values,curs[label])
+                if self.distance_measure == 'cos':
+                    clusters_distances[label][idx] = cosine_similarity(tmp.iloc[idx].values.reshape(1,-1),curs[label].reshape(1,-1)).reshape(-1)[0]
+                else: # default 欧式空间
+                    clusters_distances[label][idx] = euclidean_distance(tmp.iloc[idx].values.reshape(1,-1),curs[label].reshape(1,-1)).reshape(-1)[0]
             
             distance_sorted_samples = sorted(clusters_distances[label].items(),key = lambda x:x[1])
             sorted_sample_li = [i[0] for i in distance_sorted_samples]

@@ -34,7 +34,7 @@ class ImbalanceLoss:
 class WeightedFocalLoss(ImbalanceLoss):
     
     def __init__(self, gamma, alpha):
-        super(self, WeightedFocalLoss).__init__()
+        super(WeightedFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
     
@@ -57,7 +57,7 @@ class WeightedFocalLoss(ImbalanceLoss):
         return hess
     
     def init_score(self, y):
-        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), methods='bounded')
+        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), method='bounded')
         p = res.x
         log_odds = np.log(p / (1 - p))
             
@@ -69,49 +69,57 @@ class WeightedFocalLoss(ImbalanceLoss):
         
         return yhat
     
-    def obj_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def obj_func(self, y_true, y_pred):
+    
+        y_pred = self.clip_sigmoid(y_pred)
 
-        grad = self._grad(y,yhat)
-        hess = self._hess(y,yhat)
+        grad = self._grad(y_true,y_pred)
+        hess = self._hess(y_true,y_pred)
         
         return grad,hess
     
-    def eval_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def eval_func(self, y_true, y_pred):
+
+        y_pred = self.clip_sigmoid(y_pred)
         is_higher_better = False
 
-        return 'weighted_focal_loss', self(y,yhat), is_higher_better
+        return 'weighted_focal_loss', self(y_true,y_pred), is_higher_better
 
 
 class AsymmetricFocalLoss(ImbalanceLoss):
 
     def __init__(self, gamma_pos, gamma_neg):
-        super(self, AsymmetricFocalLoss).__init__()
+        super(AsymmetricFocalLoss, self).__init__()
         self.gamma_pos = gamma_pos
         self.gamma_neg = gamma_neg
     
     def __call__(self, y, yhat):
-        return -1 * np.power(1 - yhat, self.gamma_pos) * np.log(yhat) - (1 - yhat) * np.power(yhat, self.gamma_neg) * np.log(1 - yhat)
+        return -1 * y * np.power(1 - yhat, self.gamma_pos) * np.log(yhat) - (1 - y) * np.power(yhat, self.gamma_neg) * np.log(1 - yhat)
     
     def _grad(self, y, yhat):
-        pt1 = y * np.power(1 - yhat, self.gamma_pos) * (self.gamma_pos * yhat * np.log(yhat) + yhat - 1)
-        pt2 = -1 * (1 - yhat) * np.power(yhat, self.gamma_neg) * (self.gamma_neg * (1 - yhat) * np.log(1 - yhat) - yhat)
+        pt1 = y * self.gamma_pos * yhat * np.power(1 - yhat,self.gamma_pos) * np.log(yhat)
+        pt2 = -1 * y * np.power(1 - yhat,self.gamma_pos + 1)
+        pt3 = -1 * (1 - y) * self.gamma_neg * np.power(yhat,self.gamma_neg) * (1 - yhat) * np.log(1 - yhat)
+        pt4 = (1 - y) * np.power(yhat,self.gamma_neg + 1)
 
-        return pt1 + pt2
+        grad = pt1 + pt2 + pt3 + pt4
+
+        return grad
     
     def _hess(self, y, yhat):
-        pt1 = -1 * y * self.gamma_pos * np.power(1 - yhat, self.gamma_pos) * yhat * (self.gamma_pos * yhat * np.log(yhat) + yhat - 1)
-        pt2 = y * np.power(1 - yhat, self.gamma_pos + 1) * yhat * (self.gamma_pos * np.log(yhat) + self.gamma_pos + 1)
-        pt3 = -1 * (1 - y) * self.gamma_neg * np.power(yhat, self.gamma_neg) * (1 - yhat) * (self.gamma_neg * (1 - yhat) * np.log(1 - yhat) - yhat)
-        pt4 = -1 * (1 - y) * np.power(yhat, self.gamma_neg + 1) * (1 - yhat) * (-1 * self.gamma_neg * np.log(1 - yhat) - self.gamma_neg - 1)
+        pt1 = (y * self.gamma_pos * np.power(1 - yhat, self.gamma_pos) + y * self.gamma_pos**2 * yhat * np.power(1 - yhat, self.gamma_pos - 1)) * np.log(yhat) + y * self.gamma_pos * np.power(1 - yhat, self.gamma_pos)
+        pt2 = y * (self.gamma_pos + 1) * np.power(1 - yhat, self.gamma_pos)
+        pt3 = -1 * ( -1 * (1 - y) * self.gamma_neg**2 * np.power(yhat, self.gamma_neg - 1) * (1 - yhat) * np.log(1 - yhat) + (1 - y) * self.gamma_neg * np.power(yhat,self.gamma_neg) * ( -1 * np.log(1 - yhat) - 1))
+        pt4 = (1 - y) * (self.gamma_neg + 1) * np.power(yhat, self.gamma_neg)
 
-        return pt1 + pt2 + pt3 + pt4
+        pt5 = yhat * (1 - yhat)
+
+        hess = (pt1 + pt2 + pt3 + pt4) * pt5
+
+        return hess
     
     def init_score(self, y):
-        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), methods='bounded')
+        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), method='bounded')
         p = res.x
         log_odds = np.log(p / (1 - p))
             
@@ -123,27 +131,27 @@ class AsymmetricFocalLoss(ImbalanceLoss):
         
         return yhat
     
-    def obj_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def obj_func(self, y_true, y_pred):
+    
+        y_pred = self.clip_sigmoid(y_pred)
 
-        grad = self._grad(y,yhat)
-        hess = self._hess(y,yhat)
+        grad = self._grad(y_true,y_pred)
+        hess = self._hess(y_true,y_pred)
         
         return grad,hess
     
-    def eval_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def eval_func(self, y_true, y_pred):
+
+        y_pred = self.clip_sigmoid(y_pred)
         is_higher_better = False
 
-        return 'asymmetric_focal_loss', self(y,yhat), is_higher_better
+        return 'asymmetric_focal_loss', self(y_true,y_pred), is_higher_better
     
 
 class DiceLoss(ImbalanceLoss):
     
     def __init__(self, gamma):
-        super(self,DiceLoss).__init__()
+        super(DiceLoss, self).__init__()
         self.gamma = gamma
     
     def __call__(self, y, yhat):
@@ -171,7 +179,7 @@ class DiceLoss(ImbalanceLoss):
         return hess
     
     def init_score(self, y):
-        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), methods='bounded')
+        res = optimize.minimize_scalar(lambda p: self(y, p).sum(), bounds=(0, 1), method='bounded')
         p = res.x
         log_odds = np.log(p / (1 - p))
             
@@ -183,21 +191,21 @@ class DiceLoss(ImbalanceLoss):
         
         return yhat
     
-    def obj_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def obj_func(self, y_true, y_pred):
+    
+        y_pred = self.clip_sigmoid(y_pred)
 
-        grad = self._grad(y,yhat)
-        hess = self._hess(y,yhat)
+        grad = self._grad(y_true,y_pred)
+        hess = self._hess(y_true,y_pred)
         
         return grad,hess
     
-    def eval_func(self, preds, train_data):
-        y = train_data.get_label()
-        yhat = self.clip_sigmoid(preds)
+    def eval_func(self, y_true, y_pred):
+
+        y_pred = self.clip_sigmoid(y_pred)
         is_higher_better = False
 
-        return 'dice_loss', self(y,yhat), is_higher_better
+        return 'dice_loss', self(y_true,y_pred), is_higher_better
         
     
 
