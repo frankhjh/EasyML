@@ -16,9 +16,10 @@ class Let_us_fake():
                  mixed_columns,
                  integer_columns,
                  problem_type,
-                 epochs):
+                 epochs,
+                 use_nn_mode):
         
-        self.faker = Faker(epochs=epochs)
+        self.faker = Faker(epochs=epochs,use_nn_mode=use_nn_mode)
         self.raw_df = pd.read_csv(data_path)
         self.test_ratio = test_ratio
         self.categorical_columns = categorical_columns
@@ -28,11 +29,12 @@ class Let_us_fake():
         self.problem_type = problem_type
 
         self.epochs = epochs
+        self.use_nn_mode = use_nn_mode
     
     def fit(self):
 
         start_time = time.time()
-        self.data_prep = Data_Prep(self.raw_df,self.categorial_columns,self.log_columns,self.mixed_columns,self.integer_columns,self.problem_type,self.test_ratio)
+        self.data_prep = Data_Prep(self.raw_df,self.categorical_columns,self.log_columns,self.mixed_columns,self.integer_columns,self.problem_type,self.test_ratio)
         print('data preparation done.')
 
 
