@@ -218,6 +218,11 @@ class Faker():
             self.generator = MLP_Generator(self.rand_dim+self.cond_generator.n_opt,data_dim,3).to(self.device)
             self.discriminator = MLP_Discriminator(data_dim+self.cond_generator.n_opt,3).to(self.device)
 
+        if self.use_nn_mode == 'attn_mlp':
+
+            self.generator = Attn_MLP_Generator(self.rand_dim+self.cond_generator.n_opt,data_dim,3).to(self.device)
+            self.discriminator = Attn_MLP_Discriminator(data_dim+self.cond_generator.n_opt,3).to(self.device)
+        
         # 定义训练的超参数字典
         opt_params = dict(lr=1e-5, betas=(.5,.9), eps=1e-3, weight_decay=self.l2scale)
         opt_G = Adam(self.generator.parameters(),**opt_params)
@@ -281,7 +286,7 @@ class Faker():
                     fake_cat_d = self.D_transformer.transform(fake_cat)
                     real_cat_d = self.D_transformer.transform(real_cat)
                 
-                if self.use_nn_mode == 'mlp':
+                if self.use_nn_mode == 'mlp' or self.use_nn_mode == 'attn_mlp':
                     act_fake = apply_activate(fake,self.transformer.output_info)
 
                     fake_cat_d = torch.cat([act_fake,c],dim=1)
@@ -327,14 +332,14 @@ class Faker():
 
                 if self.use_nn_mode == 'cnn':
                     fake_t = self.G_transformer.inverse_transform(fake)
-                if self.use_nn_mode == 'mlp':
+                if self.use_nn_mode == 'mlp' or self.use_nn_mode == 'attn_mlp':
                     fake_t = fake
                 act_fake_t = apply_activate(fake_t,self.transformer.output_info)
                 fake_cat = torch.cat([act_fake_t,c],dim=1)
 
                 if self.use_nn_mode == 'cnn':
                     fake_cat_d = self.D_transformer.transform(fake_cat)
-                if self.use_nn_mode == 'mlp':
+                if self.use_nn_mode == 'mlp' or self.use_nn_mode == 'attn_mlp':
                     fake_cat_d = fake_cat
 
                 y_fake,info_fake = self.discriminator(fake_cat_d) # 虚假样本正向传播
@@ -385,7 +390,7 @@ class Faker():
                     if self.use_nn_mode == 'cnn':
                         fake_t = self.G_transformer.inverse_transform(fake)
                     
-                    if self.use_nn_mode == 'mlp':
+                    if self.use_nn_mode == 'mlp' or self.use_nn_mode == 'attn_mlp':
                         fake_t = fake
 
                     act_fake_t = apply_activate(fake_t,self.transformer.output_info)
@@ -424,7 +429,7 @@ class Faker():
 
             if self.use_nn_mode == 'cnn':
                 fake_t = self.G_transformer.inverse_transform(fake)
-            if self.use_nn_mode == 'mlp':
+            if self.use_nn_mode == 'mlp' or self.use_nn_mode == 'attn_mlp':
                 fake_t = fake
                 
             act_fake_t = apply_activate(fake_t,output_info)

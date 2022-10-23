@@ -6,7 +6,7 @@ from torch.nn import LeakyReLU,ReLU
 from torch.nn import init
 from torch.nn import BatchNorm2d,BatchNorm1d
 from torch.nn import Linear,Conv2d,ConvTranspose2d
-from torch.nn import Sigmoid
+from torch.nn import Sigmoid,Softmax
 from torch.nn import Sequential
 
 
@@ -105,7 +105,49 @@ class MLP_Discriminator(nn.Module):
     
     def forward(self,x):
         return self.mlp_d_seq(x),self.mlp_d_seq_info(x)
+
+
+class Attn_MLP_Discriminator(nn.Module):
+    '''
+    在MLP中引入注意力机制
+    '''
+    def __init__(self,input_dim,num_hid):
+        super(Attn_MLP_Discriminator,self).__init__()
+
+        self.attn_layer = Linear(input_dim,input_dim)
+        self.relu = ReLU()
+        self.softmax = Softmax(dim=1)
+
+        layers = self.build_layers(input_dim,num_hid)
+
+        self.mlp_d_seq = Sequential(*layers)
+        self.mlp_d_seq_info = Sequential(*layers[:len(layers)-2])
+
+    
+    def build_layers(self,input_dim,num_hid):
         
+        hidden_dims = [input_dim]
+        layers_D = list()
+       
+        while hidden_dims[-1] > 1 and len(hidden_dims) < num_hid + 1:
+            hidden_dims.append(hidden_dims[-1]//2)
+        
+        for prev,curr in zip(hidden_dims,hidden_dims[1:]):
+            layers_D += [Linear(prev,curr),LeakyReLU(0.2,inplace=True),Dropout(0.3)]
+        
+        layers_D += [Linear(hidden_dims[-1],1),Sigmoid()]
+
+        return layers_D
+    
+    def forward(self,x):
+
+        attn = self.attn_layer(x)
+        attn = self.relu(attn)
+        attn = self.softmax(attn)
+
+        x = torch.mul(x,attn)
+
+        return self.mlp_d_seq(x),self.mlp_d_seq_info(x)       
 
         
 class Generator(nn.Module):
@@ -174,6 +216,53 @@ class MLP_Generator(nn.Module):
         return self.mlp_g_seq(x)
 
 
+class Attn_MLP_Generator(nn.Module):
+    '''
+    在MLP中引入注意力机制
+    '''
+    def __init__(self,rand_dim,out_dim,num_hid):
+        super(Attn_MLP_Generator,self).__init__()
+
+        self.attn_layer = Linear(rand_dim,rand_dim)
+        self.relu = ReLU()
+        self.softmax = Softmax(dim=1)
+
+        layers = self.build_layers(rand_dim,out_dim,num_hid)
+
+        self.mlp_g_seq = Sequential(*layers)
+    
+    def build_layers(self,rand_dim,out_dim,num_hid):
+        '''
+        rand_dim: generator输入维度 = len(noisez) + len(cond_vec)
+        out_dim: generator输出维度
+        num_hid:hidden layer数
+        '''
+        hidden_dims = [rand_dim]
+        layers_G = list()
+
+        attn_layer = Linear(rand_dim,rand_dim)
+
+        delta = np.abs(out_dim - rand_dim) // num_hid
+        for i in range(num_hid):
+            hidden_dims.append(rand_dim + i * delta)
+        
+        hidden_dims += [out_dim]
+
+        for prev,curr in zip(hidden_dims,hidden_dims[1:]):
+            layers_G += [Linear(prev,curr),BatchNorm1d(curr),ReLU(True)]
+        
+        return layers_G
+    
+    def forward(self,x):
+
+        attn = self.attn_layer(x)
+        attn = self.relu(attn)
+        attn = self.softmax(attn)
+
+        x = torch.mul(x,attn)
+        return self.mlp_g_seq(x)
+
+    
 
 class Classifier(nn.Module):
     '''
